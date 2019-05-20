@@ -146,8 +146,8 @@ def conv2d_same(x, filters, prefix, stride=1, kernel_size=3, rate=1):
     kernel_size: kernel size for depthwise convolution
     rate: atrous/dilation rate for depthwise convolution
 
-    Returns
-    -------
+    Returns:
+    --------
     x: tensor
         Output tensor with dilated Conv2D applied (according to params)
     """

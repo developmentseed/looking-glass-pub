@@ -5,12 +5,13 @@ utils_metrics.py
 
 Collection of evaluation metrics to use for evaluating image processing
 """
+from itertools import product
+
 import numpy as np
+import tensorflow as tf
 from keras import backend as K
 from keras.layers import multiply
 from tensorflow import convert_to_tensor
-import tensorflow as tf
-from itertools import product
 
 default_smooth = 1.
 #weighting = config.model_params['class_weights']

@@ -7,30 +7,28 @@ Train the DeepLabV3+ network to segment buildings
 """
 
 import os
+import pickle
+import pprint
 from os import path as op
 from functools import partial
 from datetime import datetime as dt
-import pickle
-import pprint
 
 import yaml
-from PIL import Image
 import numpy as np
 import tensorflow as tf
-from tensorflow.contrib.opt import AddSignOptimizer, PowerSignOptimizer
 from keras import backend as K
+from keras.utils import plot_model
+from keras.utils import multi_gpu_model
 from keras.optimizers import Adam, rmsprop, SGD, TFOptimizer
 from keras.preprocessing.image import ImageDataGenerator
 from keras.callbacks import (ModelCheckpoint, EarlyStopping, TensorBoard,
                              ReduceLROnPlateau)
-from keras.utils import plot_model
-from keras.utils import multi_gpu_model
-#from tensorflow.train import linear_cosine_decay, noisy_linear_cosine_decay
+from tensorflow.contrib.opt import AddSignOptimizer, PowerSignOptimizer
 from hyperopt import fmin, Trials, STATUS_OK, tpe
+from PIL import Image
 
 from config import (get_params, tboard_dir, ckpt_dir, model_params as MP,
                     img_aug_params as IMP, save_params as SP)
-#from utils_metrics import get_lr_metric
 from utils_training import (print_start_details, print_end_details,
                             TensorBoardImage, sync_models_to_S3,
                             sync_tb_dirs_to_S3)
@@ -39,7 +37,20 @@ from model_dlab import get_deepLabV3p, preprocess_input
 
 
 def get_optimizer(opt_params, lr):
-    """Helper to get optimizer from text params"""
+    """Helper to get optimizer from text params
+
+    Parameters
+    ----------
+    opt_params: dict
+        Dictionary containing optimization function name and learning rate decay
+    lr:  float
+        Initial learning rate
+
+    Return
+    ------
+    opt_function: Keras optimizer
+    """
+
     if opt_params['opt_func'] == 'sgd':
         return SGD(lr=lr, momentum=opt_params['momentum'])
     elif opt_params['opt_func'] == 'adam':
@@ -84,7 +95,7 @@ def run_deeplab_trial(params):
     """
 
     K.clear_session()  # Remove any existing graphs
-    mst_str = dt.now().strftime("%m%d_%H%M%S")
+    mst_str = dt.now().strftime("%m%d_%H%M%S")  # Get model start time
 
     print('\n' + '=' * 40 + '\nStarting model at {}'.format(mst_str))
     print('Model # %s' % len(trials))
@@ -118,6 +129,7 @@ def run_deeplab_trial(params):
     # Construct model
     #########################
 
+    # Handle efficient loading of model and multi-GPU case
     if MP['n_gpus'] == 1:
         template_model = get_deepLabV3p(MP['input_shape'], MP['num_classes'],
                                         MP['final_layer'], MP['output_stride'])
@@ -143,9 +155,9 @@ def run_deeplab_trial(params):
     #for li, layer in enumerate(template_model.layers):
     #    print(li, layer.name)
 
-    #############################
-    # Save model training details
-    #############################
+    #####################################
+    # Save model training details to disk
+    #####################################
     model_yaml = template_model.to_yaml()
     save_template = op.join(ckpt_dir, mst_str + '_{}.{}')
     arch_fpath = save_template.format('arch', 'yaml')
@@ -163,11 +175,12 @@ def run_deeplab_trial(params):
     #plot_model(template_model, to_file='model_schematic.png')
 
     ####################
-    # Train top layers
+    # Train model
     ####################
     # TODO: better way to directly access epochs finished?
     epochs_finished = 0
 
+    # Train model layers sequentially to avoid unstable training
     for pi, (ph_steps, frz_cutoff, ph_lr) in enumerate(MP['phase_lengths']):
 
         print('\nPhase {}, layer cutoff: {}, learning rate: {}'.format(
@@ -281,9 +294,9 @@ if __name__ == '__main__':
     train_gen = ImageDataGenerator(**IMP)
     test_gen = ImageDataGenerator()
 
-    ###############################
-    # Define Hyperopt optimization
-    ###############################
+    ######################################################
+    # Define Hyperopt optimization and run training trials
+    ######################################################
     trials = Trials()
     algo = partial(tpe.suggest, n_startup_jobs=MP['n_rand_hp_iters'])
     argmin = fmin(run_deeplab_trial, space=get_params(MP), algo=algo,
